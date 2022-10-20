@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+option go_package = "github.com/jrobison153/raft/api";
+
+service Persister {
+  rpc SaveItem(SaveRequest) returns (SaveResponse) {}
+}
+
+message SaveRequest {
+
+}
+
+message SaveResponse {
+
+}
