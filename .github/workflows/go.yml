@@ -5,13 +5,14 @@ name: Go
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "*" ]
   pull_request:
     branches: [ "main" ]
 
 jobs:
 
   build:
+    name: Build Raft
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
@@ -20,12 +21,40 @@ jobs:
       uses: actions/setup-go@v3
       with:
         go-version: 1.19
-    
-    - name: Temporary Debug
-      run: ls -al
+
+    - name: Setup Java
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'adopt'
+        java-version: '17'
+        cache: 'gradle'
+
+    - name: Validate Gradle Distribution
+      uses: gradle/wrapper-validation-action@v1
+
+    - name: Setup Gradle
+      uses: gradle/gradle-build-action@v2
+
+    - name: Install Protoc
+      uses: arduino/setup-protoc@v1
+      with:
+        version: '3.x'
+
+    - name: Install protoc-gen-go
+      run: go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28
+
+    - name: Install protoc-gen-go-grpc
+      run: go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.2
+
+    - name: Generate Client API
+      run: ./gradlew generateClientApi
+
+    - name: Vet
+      run: go vet ./...
+
+    - name: Test
+      run: go test -v ./...
 
     - name: Build
       run: go build -v .
 
-    - name: Test
-      run: go test -v ./...

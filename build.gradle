@@ -10,6 +10,11 @@ tasks.register("generateClientApi") {
     doLast {
 
         exec {
+            commandLine 'mkdir', 'api'
+            ignoreExitValue true
+        }
+
+        exec {
             commandLine 'protoc',
                 '--go_out=./api',
                  '--go_opt=paths=source_relative',
