@@ -1,22 +1,29 @@
 package acceptance_tests
 
 import (
-	"bytes"
-	"encoding/json"
+	"context"
 	"fmt"
+	"github.com/jrobison153/raft/api"
 	"github.com/jrobison153/raft/server"
-	"net/http"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"testing"
 )
 
+var serverPort uint32 = 8088
+
+var raftServer *server.RaftClientApi
+
 func Setup() {
 
-	fmt.Println("First")
+	raftServer = new(server.RaftClientApi)
+
+	go raftServer.Start(serverPort)
 }
 
 func Teardown() {
 
-	fmt.Println("Last")
+	raftServer.Stop()
 }
 
 func TestWhenAnItemIsPutItCanBeRetrieved(t *testing.T) {
@@ -24,31 +31,29 @@ func TestWhenAnItemIsPutItCanBeRetrieved(t *testing.T) {
 	Setup()
 	defer Teardown()
 
-	type AnItem struct {
-		Key  string
-		Data uint32
+	itemToPut := api.Item{
+		Key:  "af159-ef7ff",
+		Data: []byte("42"),
 	}
 
-	port := 8080
-	url := fmt.Sprintf("http://localhost:%d/item", port)
-	itemToPut := AnItem{"af159-ef7ff", 42}
-	marshalledItemToPut, err := json.Marshal(itemToPut)
+	var opts []grpc.DialOption
+	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+
+	serverAddress := fmt.Sprintf("localhost:%d", serverPort)
+
+	conn, err := grpc.Dial(serverAddress, opts...)
 
 	if err != nil {
 		panic(err)
 	}
 
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(marshalledItemToPut))
+	defer conn.Close()
+
+	client := api.NewPersisterClient(conn)
+
+	_, err = client.PutItem(context.Background(), &itemToPut)
 
 	if err != nil {
-		panic(err)
+		t.Errorf("PutItem request failed with error %s", err.Error())
 	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 201 {
-		t.Errorf("Expected HTTP status code 201 but got %d", resp.StatusCode)
-	}
-
-	server.Start()
 }
