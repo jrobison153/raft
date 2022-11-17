@@ -10,3 +10,6 @@ build
 api
 
 raft
+
+coverage.html
+coverage.out
