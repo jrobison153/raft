@@ -1,9 +1,21 @@
 syntax = "proto3";
 
+package raftapi;
+
 option go_package = "github.com/jrobison153/raft/api";
 
 service Persister {
+  rpc Health(Empty) returns (HealthResponse) {}
   rpc PutItem(Item) returns (PutResponse) {}
+  rpc GetItem(Key) returns (GetResponse) {}
+}
+
+message Empty {
+
+}
+
+message HealthResponse {
+  HealthStatusCodes status = 1;
 }
 
 message Item {
@@ -11,6 +23,45 @@ message Item {
   bytes data = 2;
 }
 
+message Key {
+  string key = 1;
+}
+
 message PutResponse {
 
+  ClientStatusCodes status = 1;
+  RetryCodes isRetryable = 2;
+  ReplicationCodes replicationStatus = 3;
+}
+
+message GetResponse {
+
+  Item item = 1;
+  ClientStatusCodes status = 2;
+  RetryCodes isRetryable = 3;
+  string errorMessage = 4;
+}
+
+enum HealthStatusCodes {
+
+  OK = 0;
+}
+
+enum ClientStatusCodes {
+
+  PUT_OK = 0;
+  PUT_ERROR = 1;
+  GET_OK = 2;
+  GET_ERROR = 3;
+}
+
+enum RetryCodes {
+  YES = 0;
+  NO = 1;
+}
+
+enum ReplicationCodes {
+
+  QUORUM_REACHED = 0;
+  FAILURE_TO_REACH_QUORUM = 1;
 }
