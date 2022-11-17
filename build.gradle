@@ -24,3 +24,63 @@ tasks.register("generateClientApi") {
         }
     }
 }
+
+tasks.register("precommit") {
+
+    tasks.vet.mustRunAfter("lint")
+    tasks.coverage.mustRunAfter("vet")
+
+    dependsOn("lint")
+    dependsOn("vet")
+    dependsOn("coverage")
+}
+
+tasks.register("lint") {
+
+    doLast {
+
+        println "=====> Linting code"
+
+        exec {
+            commandLine 'golangci-lint', 'run'
+        }
+    }
+}
+
+tasks.register("test") {
+
+    doLast {
+
+        println "=====> Running tests"
+
+        exec {
+            commandLine 'go', 'test', '-coverprofile', 'coverage.out', './...'
+        }
+    }
+}
+
+tasks.register("coverage") {
+
+    dependsOn("test")
+
+    doLast {
+
+        println "=====> Generating code test coverage"
+
+        exec {
+            commandLine 'go', 'tool', 'cover', '-html', 'coverage.out', '-o', 'coverage.html'
+        }
+    }
+}
+
+tasks.register("vet") {
+
+    doLast {
+
+        println "=====> Vetting code"
+
+        exec {
+            commandLine 'go', 'vet', './...'
+        }
+    }
+}
