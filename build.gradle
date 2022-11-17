@@ -24,3 +24,120 @@ tasks.register("generateClientApi") {
         }
     }
 }
+
+tasks.register("precommit") {
+
+    tasks.vet.mustRunAfter("lint")
+    tasks.coverage.mustRunAfter("vet")
+
+    dependsOn("lint")
+    dependsOn("vet")
+    dependsOn("coverage")
+}
+
+tasks.register("lint") {
+
+    doLast {
+
+        println "=====> Linting code"
+
+        exec {
+            commandLine 'golangci-lint', 'run'
+        }
+    }
+}
+
+tasks.register("testUnit") {
+
+    doLast {
+
+        def fileList = new ByteArrayOutputStream()
+        exec {
+            commandLine 'go', 'list', './...'
+            standardOutput = fileList
+        }
+
+        def inputFiles = new ByteArrayInputStream(fileList.toByteArray())
+        def filteredFileListStream = new ByteArrayOutputStream()
+
+        exec {
+            commandLine "grep", "-v", "/acceptance_tests"
+            standardInput = inputFiles
+            standardOutput = filteredFileListStream
+        }
+
+       def testPackages = filteredFileListStream.toString().split('\n')
+
+       def args = new ArrayList<String>()
+       args.add('go')
+       args.add('test')
+       args.add('-coverprofile')
+       args.add('coverage.out')
+
+       testPackages.each { val ->
+            args.add(val)
+        }
+
+       exec {
+            commandLine args
+       }
+    }
+}
+
+tasks.register('testAcceptance') {
+
+    doLast {
+
+        exec {
+            commandLine 'go', 'test', './acceptance_tests'
+        }
+    }
+}
+
+tasks.register("test") {
+
+    dependsOn('testUnit')
+    dependsOn('testAcceptance')
+}
+
+tasks.register("coverage") {
+
+    dependsOn("testUnit")
+
+    doLast {
+
+        println "=====> Removing test doubles from report"
+
+        String coveredFiles = new File('./coverage.out').text
+
+        def coveredFileList = coveredFiles.split('\n')
+
+        def filteredCoveredFileList = coveredFileList.findAll {
+            !it.matches(/.*_dummy.go.*|.*_stub.go.*|.*_spy.go.*|.*_fake.go.*/)
+        }
+
+        File coverageFile = new File('./coverage.out')
+
+        coverageFile.withWriter { out ->
+            filteredCoveredFileList.each { val -> out.println val}
+        }
+
+        println "=====> Generating code test coverage"
+
+        exec {
+            commandLine 'go', 'tool', 'cover', '-html', 'coverage.out', '-o', 'coverage.html'
+        }
+    }
+}
+
+tasks.register("vet") {
+
+    doLast {
+
+        println "=====> Vetting code"
+
+        exec {
+            commandLine 'go', 'vet', './...'
+        }
+    }
+}
