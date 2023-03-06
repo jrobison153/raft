@@ -9,12 +9,11 @@ import (
 	"github.com/jrobison153/raft/api"
 	"github.com/jrobison153/raft/policy/client"
 	"github.com/jrobison153/raft/server"
+	"github.com/jrobison153/raft/telemetry"
 	"google.golang.org/grpc"
 	"log"
 	"net"
 )
-
-// TODO refactor so that RaftServer deals only with GRPC controller concerns. Move bootstrap to main
 
 // RaftServer serves the client API via the gRPC protocol
 type RaftServer struct {
@@ -48,13 +47,18 @@ func (clientApi *RaftServer) Start(port uint32) {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
+	metrics := telemetry.NewPrometheusMetrics()
+
 	var opts []grpc.ServerOption
+	opts = metrics.AddServerOptions(opts)
 
 	grpcServer := grpc.NewServer(opts...)
 
 	clientApi.server = grpcServer
 
 	api.RegisterPersisterServer(grpcServer, clientApi)
+
+	metrics.EnableMetrics(clientApi.server)
 
 	log.Printf("client API server starting on port %d\n", port)
 
