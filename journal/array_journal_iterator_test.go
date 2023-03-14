@@ -87,9 +87,7 @@ func TestWhenNextItemRetrievedThenTheCorrectEntryIsReturned(t *testing.T) {
 
 	backingArray := []Entry{
 		{
-			Key:    []byte("a key"),
-			RawKey: "a key",
-			Data:   []byte("1"),
+			Item: []byte("1"),
 		},
 	}
 

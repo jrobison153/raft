@@ -66,7 +66,7 @@ func appendMany(journalSpy *journal.Spy, count int) journal.AppendResult {
 
 	for i := 0; i <= count; i++ {
 
-		result := journalSpy.Append("foo", []byte("foo"), []byte("some data"))
+		result := journalSpy.Append([]byte("some data"))
 
 		appendResult = <-result
 	}

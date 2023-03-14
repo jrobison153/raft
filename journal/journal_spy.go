@@ -2,7 +2,6 @@ package journal
 
 import (
 	"errors"
-	"reflect"
 )
 
 // TODO look at refactoring this spy as it has become a fake and in reality it could wrap ArrayJournal
@@ -14,9 +13,7 @@ const (
 )
 
 type SpyEntry struct {
-	Key    []byte
-	Data   []byte
-	RawKey string
+	Item []byte
 }
 
 type Spy struct {
@@ -29,7 +26,7 @@ type Spy struct {
 	isFailingNextNotifyOfCommitOnIndexOnce bool
 	log                                    []SpyEntry
 	notifyOfAllCommitChangesCallCount      int
-	spiedAppendData                        []byte
+	spiedAppendItem                        []byte
 	spiedAppendKey                         []byte
 	subscribers                            map[uint64]chan bool
 	workQueue                              chan SpyCommand
@@ -65,12 +62,10 @@ type SpyCommand struct {
 	getAllUncommittedEntriesDoneCh chan AllUncommittedEntriesResult
 }
 
-func (spy *Spy) Append(rawKey string, key []byte, data []byte) chan AppendResult {
+func (spy *Spy) Append(item []byte) chan AppendResult {
 
 	entry := SpyEntry{
-		Key:    key,
-		Data:   data,
-		RawKey: rawKey,
+		Item: item,
 	}
 
 	doneCh := make(chan AppendResult)
@@ -176,22 +171,22 @@ func (spy *Spy) AppendKey() []byte {
 
 func (spy *Spy) AppendData() []byte {
 
-	return spy.spiedAppendData
+	return spy.spiedAppendItem
 }
 
 func (spy *Spy) LatestEntryForKey(key []byte) SpyEntry {
 
-	var mostRecentAppendForKey SpyEntry
+	//var mostRecentAppendForKey SpyEntry
 
-	for _, entry := range spy.log {
+	//for _, entry := range spy.log {
+	//
+	//	if reflect.DeepEqual(entry.Key, key) {
+	//		mostRecentAppendForKey = entry
+	//		break
+	//	}
+	//}
 
-		if reflect.DeepEqual(entry.Key, key) {
-			mostRecentAppendForKey = entry
-			break
-		}
-	}
-
-	return mostRecentAppendForKey
+	return SpyEntry{}
 }
 
 func (spy *Spy) FailNextAppend(appendFailMsg string) {
@@ -271,8 +266,7 @@ func (spy *Spy) append(command SpyCommand) {
 	} else {
 
 		spy.appendCalled = true
-		spy.spiedAppendKey = command.appendEntry.Key
-		spy.spiedAppendData = command.appendEntry.Data
+		spy.spiedAppendItem = command.appendEntry.Item
 
 		entry := command.appendEntry
 
@@ -342,12 +336,7 @@ func createEntryArray(journal []SpyEntry) []Entry {
 
 	for _, k := range journal {
 
-		anEntry := Entry{
-			Key:    k.Key,
-			Data:   k.Data,
-			RawKey: k.RawKey,
-		}
-
+		anEntry := Entry(k)
 		resultEntries = append(resultEntries, anEntry)
 	}
 	return resultEntries

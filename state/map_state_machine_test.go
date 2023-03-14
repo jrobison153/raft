@@ -1,7 +1,7 @@
 package state
 
 import (
-	"github.com/jrobison153/raft/crypto"
+	"encoding/json"
 	"github.com/jrobison153/raft/journal"
 	"reflect"
 	"testing"
@@ -59,28 +59,17 @@ func TestWhenStateMachineIsStartedThenItInitializesStateFromJournal(t *testing.T
 	journalSpy := journal.NewJournalSpy()
 	stateMachine := NewMapStateMachine(journalSpy)
 
-	initData := map[string][]byte{
+	rawKeyValData := map[string][]byte{
 		"a": []byte("a value"),
 		"b": []byte("b value"),
 		"c": []byte("c value"),
 	}
 
-	var commitIndex uint64
-	for k, v := range initData {
-
-		hashedKey := crypto.HashIt(k)
-		result := journalSpy.Append(k, hashedKey, v)
-
-		appendResult := <-result
-
-		commitIndex = appendResult.Index
-	}
-
-	_ = journalSpy.Commit(commitIndex)
+	loadJournalAndCommit(rawKeyValData, journalSpy)
 
 	_ = stateMachine.Start()
 
-	for k, v := range initData {
+	for k, v := range rawKeyValData {
 
 		if !reflect.DeepEqual(stateMachine.data[k], v) {
 			t.Errorf("State machine should have been initialized with key '%s' and value '%s'", k, v)
@@ -88,48 +77,59 @@ func TestWhenStateMachineIsStartedThenItInitializesStateFromJournal(t *testing.T
 	}
 }
 
+func TestWhenStateMachineIsStartedAndKeyValUnmarshalFailsThenAnErrorIsReturned(t *testing.T) {
+
+	_, err := setupForBadJournalData()
+
+	if ErrCannotUnmarshalKeyValData != err {
+		t.Errorf("Should have received error %v but got %v", ErrCannotUnmarshalKeyValData, err)
+	}
+}
+
+func TestWhenStateMachineIsStartedAndKeyValUnmarshalFailsThenStateMachineIsNotStarted(t *testing.T) {
+
+	stateMachine, _ := setupForBadJournalData()
+
+	if stateMachine.isRunning {
+		t.Errorf("State machine should not have started due to error")
+	}
+}
+
 func TestWhenMultipleCommitsThenTheStateMachineRepresentsTheResultOfTheLastCommit(t *testing.T) {
 
-	journalSpy, stateMachine := setup()
+	journalSpy := journal.NewJournalSpy()
+	stateMachine := NewMapStateMachine(journalSpy)
 
-	key := "a key"
-	hashedKey := crypto.HashIt(key)
+	rawKeyValData := map[string][]byte{
+		"a": []byte("a value"),
+		"b": []byte("b value"),
+		"c": []byte("c value"),
+	}
 
-	var appendDoneCh chan journal.AppendResult
-	var appendResult journal.AppendResult
+	loadJournalAndCommit(rawKeyValData, journalSpy)
 
-	appendDoneCh = journalSpy.Append(key, hashedKey, []byte("a"))
-	<-appendDoneCh
+	expectedData := []byte("b value has been updated")
+	rawKeyValDataUpdate := map[string][]byte{
+		"b": expectedData,
+		"c": []byte("c value"),
+	}
 
-	appendDoneCh = journalSpy.Append(key, hashedKey, []byte("b"))
-	appendResult = <-appendDoneCh
+	loadJournalAndCommit(rawKeyValDataUpdate, journalSpy)
 
-	midIndex := appendResult.Index
+	_ = stateMachine.Start()
 
-	var commitDoneCh chan journal.CommitResult
-	commitDoneCh = journalSpy.Commit(midIndex)
-	<-commitDoneCh
+	key := Key{
+		Key: "b",
+	}
 
-	appendDoneCh = journalSpy.Append(key, hashedKey, []byte("c"))
-	<-appendDoneCh
+	marshalledKey, _ := json.Marshal(key)
 
-	expectedValue := []byte("i am some data")
-	appendDoneCh = journalSpy.Append(key, hashedKey, expectedValue)
-	appendResult = <-appendDoneCh
+	actualData, _ := stateMachine.ResolveRequestToData(marshalledKey)
 
-	commitDoneCh = journalSpy.Commit(appendResult.Index)
-	<-commitDoneCh
-
-	// gross but need to give listener time to update state before reading, eventual consistency :)
-	time.Sleep(50 * time.Millisecond)
-
-	actualValue, _ := stateMachine.GetValueForKey(key)
-
-	if !reflect.DeepEqual(expectedValue, actualValue) {
-		t.Errorf("State machine should have updated key '%s' value to '%s' but instead value was '%s'",
-			key,
-			expectedValue,
-			actualValue)
+	if !reflect.DeepEqual(expectedData, actualData) {
+		t.Errorf("State machine should have updated key 'b' value to '%s' but instead value was '%s'",
+			expectedData,
+			actualData)
 	}
 }
 
@@ -137,20 +137,20 @@ func TestWhenGettingValueForValidKeyThenErrorIsNil(t *testing.T) {
 
 	journalSpy, stateMachine := setup()
 
-	key := "a key"
-	hashedKey := crypto.HashIt(key)
-	expectedValue := []byte("i am some data")
+	rawKeyValData := map[string][]byte{
+		"a": []byte("a value"),
+		"b": []byte("b value"),
+		"c": []byte("c value"),
+	}
 
-	appendDoneCh := journalSpy.Append(key, hashedKey, expectedValue)
-	appendResult := <-appendDoneCh
-
-	commitDoneCh := journalSpy.Commit(appendResult.Index)
-	<-commitDoneCh
+	loadJournalAndCommit(rawKeyValData, journalSpy)
 
 	// gross but need to give listener time to update state before reading, eventual consistency :)
 	time.Sleep(50 * time.Millisecond)
 
-	_, err := stateMachine.GetValueForKey(key)
+	marshalledKey := createKeyRequest("b")
+
+	_, err := stateMachine.ResolveRequestToData(marshalledKey)
 
 	if err != nil {
 		t.Errorf("Error should have been nil but was '%v'", err)
@@ -161,32 +161,20 @@ func TestWhenStateMachineUpdatesDueToCommitIndexChangeThenHighestSeenCommitIndex
 
 	journalSpy, stateMachine := setup()
 
-	key := "a key"
-	hashedKey := crypto.HashIt(key)
+	rawKeyValData := map[string][]byte{
+		"a": []byte("a value"),
+		"b": []byte("b value"),
+		"c": []byte("c value"),
+	}
 
-	var appendDoneCh chan journal.AppendResult
-
-	appendDoneCh = journalSpy.Append(key, hashedKey, []byte("a"))
-	<-appendDoneCh
-
-	appendDoneCh = journalSpy.Append(key, hashedKey, []byte("b"))
-	<-appendDoneCh
-
-	appendDoneCh = journalSpy.Append(key, hashedKey, []byte("c"))
-	<-appendDoneCh
-
-	appendDoneCh = journalSpy.Append(key, hashedKey, []byte("d"))
-	appendResult := <-appendDoneCh
-
-	commitDoneCh := journalSpy.Commit(appendResult.Index)
-	<-commitDoneCh
+	expectedCommitIndex := loadJournalAndCommit(rawKeyValData, journalSpy)
 
 	// gross but need to give listener time to update state before reading, eventual consistency :)
 	time.Sleep(50 * time.Millisecond)
 
-	if uint64(stateMachine.highestSeenCommitIndex) != appendResult.Index {
+	if uint64(stateMachine.highestSeenCommitIndex) != expectedCommitIndex {
 		t.Errorf("State machine should have updated its highest seen commit index to value %d but it was %d",
-			appendResult.Index,
+			expectedCommitIndex,
 			stateMachine.highestSeenCommitIndex)
 	}
 }
@@ -195,7 +183,9 @@ func TestWhenGettingValueAndKeyDoesNotExistThenAnErrorIsReturned(t *testing.T) {
 
 	_, stateMachine := setup()
 
-	_, err := stateMachine.GetValueForKey("does not exist")
+	requestItem := createKeyRequest("does not exist key")
+
+	_, err := stateMachine.ResolveRequestToData(requestItem)
 
 	if ErrKeyNotFound != err {
 		t.Errorf("'Key does not exist, expected error '%v' but got '%v'",
@@ -204,14 +194,28 @@ func TestWhenGettingValueAndKeyDoesNotExistThenAnErrorIsReturned(t *testing.T) {
 	}
 }
 
-func TestWhenGettingValueAndKeyDoesNotExistThenAnNilValueIsReturned(t *testing.T) {
+func TestWhenGettingValueAndKeyDoesNotExistThenNilValueIsReturned(t *testing.T) {
 
 	_, stateMachine := setup()
 
-	val, _ := stateMachine.GetValueForKey("does not exist")
+	requestItem := createKeyRequest("does not exist key")
+
+	val, _ := stateMachine.ResolveRequestToData(requestItem)
 
 	if val != nil {
 		t.Errorf("'Key does not exist, expected nil value but got '%v'", val)
+	}
+}
+func TestWhenResolvingRequestToGetDataAndRequestIsNotCorrectStructureThenAnErrorIsReturned(t *testing.T) {
+
+	_, stateMachine := setup()
+
+	requestItem := []byte("not valid request")
+
+	_, err := stateMachine.ResolveRequestToData(requestItem)
+
+	if ErrInvalidKeyRequest != err {
+		t.Errorf("Expected error '%v' but got '%v'", ErrInvalidKeyRequest, err)
 	}
 }
 
@@ -224,4 +228,72 @@ func setup() (*journal.Spy, *MapStateMachine) {
 	stateMachine.Start()
 
 	return journalSpy, stateMachine
+}
+
+func loadJournalAndCommit(rawKeyValData map[string][]byte, journalSpy *journal.Spy) uint64 {
+
+	items := make([][]byte, 0, len(rawKeyValData))
+
+	for k, v := range rawKeyValData {
+
+		marshalledRawData := createKeyValRequestItem(k, v)
+
+		items = append(items, marshalledRawData)
+	}
+
+	var commitIndex uint64
+	for _, v := range items {
+
+		result := journalSpy.Append(v)
+
+		appendResult := <-result
+
+		commitIndex = appendResult.Index
+	}
+
+	commitDoneCh := journalSpy.Commit(commitIndex)
+
+	<-commitDoneCh
+
+	return commitIndex
+}
+
+func createKeyValRequestItem(k string, v []byte) []byte {
+
+	rawData := KeyValItem{
+		Key:  k,
+		Data: v,
+	}
+
+	marshalledRawData, _ := json.Marshal(rawData)
+	return marshalledRawData
+}
+
+func createKeyRequest(key string) []byte {
+
+	keyRequest := Key{
+		Key: key,
+	}
+
+	marshalledKey, _ := json.Marshal(keyRequest)
+
+	return marshalledKey
+}
+
+func setupForBadJournalData() (*MapStateMachine, error) {
+
+	journalSpy := journal.NewJournalSpy()
+	stateMachine := NewMapStateMachine(journalSpy)
+
+	notKeyValueData := []byte("certainly not key value format")
+
+	appendDoneCh := journalSpy.Append(notKeyValueData)
+	appendResult := <-appendDoneCh
+
+	commitDoneCh := journalSpy.Commit(appendResult.Index)
+	<-commitDoneCh
+
+	err := stateMachine.Start()
+
+	return stateMachine, err
 }

@@ -1,8 +1,10 @@
 package state
 
 import (
+	"encoding/json"
 	"errors"
 	"github.com/jrobison153/raft/journal"
+	"log"
 	"reflect"
 )
 
@@ -14,9 +16,22 @@ type MapStateMachine struct {
 	isRunning              bool
 }
 
+// KeyValItem TODO - this struct is the same as the client "drivers" type, can we share it?
+type KeyValItem struct {
+	Key  string
+	Data []byte
+}
+
+// Key TODO - this struct is the same as the client "drivers" type, can we share it?
+type Key struct {
+	Key string
+}
+
 var (
-	ErrAlreadyRunning = errors.New("state machine already running")
-	ErrKeyNotFound    = errors.New("key not associated with any data in store")
+	ErrAlreadyRunning            = errors.New("state machine already running")
+	ErrCannotUnmarshalKeyValData = errors.New("data in journal is not correct key value format")
+	ErrInvalidKeyRequest         = errors.New("attempt to get value with a request that is not valid Key type")
+	ErrKeyNotFound               = errors.New("key not associated with any data in store")
 )
 
 func NewMapStateMachine(journal journal.Journaler) *MapStateMachine {
@@ -31,27 +46,25 @@ func NewMapStateMachine(journal journal.Journaler) *MapStateMachine {
 
 // Start registers this state machine as a listener on all commit changes of the journal.
 // Returns ErrAlreadyRunning if this method is called more than once
+// Returns ErrCannotUnmarshalKeyValData if there is are failures trying to load state machine with key value data
+// from the journal
 func (state *MapStateMachine) Start() error {
 
 	var err error
 
 	if !state.isRunning {
 
-		committedEntriesIt := state.journal.GetAllCommittedEntries()
+		err = state.renderCurrentStateFromJournal()
 
-		for committedEntriesIt.HasNext() {
+		if err == nil {
 
-			committedEntry, _ := committedEntriesIt.Next()
+			state.commitListenCh = make(chan uint64)
+			state.journal.NotifyOfAllCommitChanges(state.commitListenCh)
 
-			state.data[committedEntry.RawKey] = committedEntry.Data
+			go state.listenForStateChanges(state.commitListenCh)
+
+			state.isRunning = true
 		}
-
-		state.commitListenCh = make(chan uint64)
-		state.journal.NotifyOfAllCommitChanges(state.commitListenCh)
-
-		go state.listenForStateChanges(state.commitListenCh)
-
-		state.isRunning = true
 	} else {
 		err = ErrAlreadyRunning
 	}
@@ -59,16 +72,28 @@ func (state *MapStateMachine) Start() error {
 	return err
 }
 
-// GetValueForKey returns the value associated with key. If the key is not found in the
-// data store then ErrKeyNotfound is returned
-func (state *MapStateMachine) GetValueForKey(key string) ([]byte, error) {
+// ResolveRequestToData returns the value associated with request.
+// Returns ErrKeyNotfound If the key is not found in the data store
+func (state *MapStateMachine) ResolveRequestToData(request []byte) ([]byte, error) {
 
-	val, ok := state.data[key]
+	key := &Key{}
+
+	marshalErr := json.Unmarshal(request, key)
 
 	var err error
+	var val []byte
 
-	if !ok {
-		err = ErrKeyNotFound
+	if marshalErr == nil {
+
+		var ok bool
+		val, ok = state.data[key.Key]
+
+		if !ok {
+			err = ErrKeyNotFound
+		}
+	} else {
+		log.Printf("Invalid request '%v', must be type Key with the following structure %+v", request, Key{})
+		err = ErrInvalidKeyRequest
 	}
 
 	return val, err
@@ -92,9 +117,47 @@ func (state *MapStateMachine) listenForStateChanges(ch chan uint64) {
 		for entries.HasNext() {
 
 			journalEntry, _ := entries.Next()
-			state.data[journalEntry.RawKey] = journalEntry.Data
+
+			// explicitly ignoring error response here, nothing we can do if the data
+			// in the journal is corrupt or invalid. Error will be logged
+			//nolint:errcheck
+			state.updateStateWithJournalItem(journalEntry.Item)
 		}
 
 		state.highestSeenCommitIndex = int64(index)
 	}
+}
+
+func (state *MapStateMachine) renderCurrentStateFromJournal() error {
+
+	committedEntriesIt := state.journal.GetAllCommittedEntries()
+	var err error
+
+	for committedEntriesIt.HasNext() && err == nil {
+
+		committedEntry, _ := committedEntriesIt.Next()
+
+		rawKeyVal := committedEntry.Item
+
+		err = state.updateStateWithJournalItem(rawKeyVal)
+	}
+
+	return err
+}
+
+func (state *MapStateMachine) updateStateWithJournalItem(rawKeyVal []byte) error {
+
+	keyValItem := &KeyValItem{}
+
+	unMarshalErr := json.Unmarshal(rawKeyVal, keyValItem)
+	var err error
+
+	if unMarshalErr != nil {
+		log.Printf("unable to update state machine, data in journal not correct k/v format")
+		err = ErrCannotUnmarshalKeyValData
+	} else {
+		state.data[keyValItem.Key] = keyValItem.Data
+	}
+
+	return err
 }

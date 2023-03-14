@@ -6,8 +6,8 @@ option go_package = "github.com/jrobison153/raft/api";
 
 service Persister {
   rpc Health(Empty) returns (HealthResponse) {}
-  rpc PutItem(Item) returns (PutResponse) {}
-  rpc GetItem(Key) returns (GetResponse) {}
+  rpc PutItem(Item) returns (PutItemResponse) {}
+  rpc GetItem(Item) returns (GetItemResponse) {}
 }
 
 message Empty {
@@ -19,22 +19,17 @@ message HealthResponse {
 }
 
 message Item {
-  string key = 1;
-  bytes data = 2;
+  bytes data = 1;
 }
 
-message Key {
-  string key = 1;
-}
-
-message PutResponse {
+message PutItemResponse {
 
   ClientStatusCodes status = 1;
   RetryCodes isRetryable = 2;
   ReplicationCodes replicationStatus = 3;
 }
 
-message GetResponse {
+message GetItemResponse {
 
   Item item = 1;
   ClientStatusCodes status = 2;

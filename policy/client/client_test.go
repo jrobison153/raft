@@ -1,23 +1,17 @@
 package client
 
 import (
-	"github.com/jrobison153/raft/crypto"
 	"github.com/jrobison153/raft/journal"
 	"github.com/jrobison153/raft/state"
 	"reflect"
 	"testing"
 )
 
-// Missing tests
-// Get - return error when key not found in state machine
-// Put - Append to journal needs to also pass the un-hashed key because we need that to retrieve the value from
-//	     the state machine during Get operations
-
 func TestWhenAnItemIsPutSuccessfullyThenThereAreNoErrors(t *testing.T) {
 
 	testContext := setup()
 
-	_, err := testContext.client.Put(testContext.key, testContext.data)
+	_, err := testContext.client.Put(testContext.item)
 
 	if err != nil {
 		t.Errorf("Expected no errors but got error '%s'", err)
@@ -28,62 +22,10 @@ func TestWhenAnItemIsPutThenTheItemIsAppendedToTheLog(t *testing.T) {
 
 	testContext := setup()
 
-	testContext.client.Put(testContext.key, testContext.data)
+	testContext.client.Put(testContext.item)
 
 	if testContext.journalSpy.AppendCalled() != true {
 		t.Error("Put item was not appended to the journal")
-	}
-}
-
-func TestWhenItemIsPutThenTheKeyIsHashed(t *testing.T) {
-
-	testContext := setup()
-
-	testContext.client.Put(testContext.key, testContext.data)
-
-	spiedKey := testContext.journalSpy.AppendKey()
-	expectedKey := hashIt(testContext.key)
-
-	if !reflect.DeepEqual(spiedKey, expectedKey) {
-		t.Errorf(
-			"Key not correctly hashed when passed to the Log. Expected '%s' got '%s'",
-			expectedKey,
-			spiedKey)
-	}
-}
-
-func TestWhenItemIsPutThenTheDataIsAssociatedWithTheHashedKey(t *testing.T) {
-
-	testContext := setup()
-
-	testContext.client.Put(testContext.key, testContext.data)
-	hashedKey := hashIt(testContext.key)
-
-	spiedData := testContext.journalSpy.LatestEntryForKey(hashedKey)
-	expectedData := testContext.data
-
-	if !reflect.DeepEqual(spiedData.Data, expectedData) {
-		t.Errorf("Data was not correctly associated with the key. Expected data '%s' but got '%s' for key '%s'",
-			expectedData,
-			spiedData.Data,
-			testContext.key)
-	}
-}
-
-func TestWhenItemIsPutThenTheDataIsAssociatedWithTheRawKey(t *testing.T) {
-
-	testContext := setup()
-
-	testContext.client.Put(testContext.key, testContext.data)
-	hashedKey := hashIt(testContext.key)
-
-	spiedData := testContext.journalSpy.LatestEntryForKey(hashedKey)
-
-	if !reflect.DeepEqual(spiedData.RawKey, testContext.key) {
-		t.Errorf("Raw key was not correctly associated with the log entry. Expected '%s', got '%s' for key '%s'",
-			testContext.key,
-			spiedData,
-			testContext.key)
 	}
 }
 
@@ -92,7 +34,7 @@ func TestWhenLogAppendFailsThenErrorIsReturned(t *testing.T) {
 	testContext := setup()
 	testContext.journalSpy.FailNextAppend("whatever")
 
-	_, err := testContext.client.Put(testContext.key, testContext.data)
+	_, err := testContext.client.Put(testContext.item)
 
 	if ErrAppendToJournalFailed != err {
 		t.Errorf("Expected error '%v' but got '%v'", ErrAppendToJournalFailed, err)
@@ -103,7 +45,7 @@ func TestWhenItemIsPutThenChannelReturnedUnblocksOnCommitSuccess(t *testing.T) {
 
 	testContext := setup()
 
-	doneCh, _ := testContext.client.Put(testContext.key, testContext.data)
+	doneCh, _ := testContext.client.Put(testContext.item)
 
 	go testContext.journalSpy.Commit(1)
 
@@ -119,7 +61,7 @@ func TestWhenLogAppendFailsThenTheCorrectErrorMessageIsReturned(t *testing.T) {
 	testContext := setup()
 	testContext.journalSpy.FailNextAppend("failing for test purposes")
 
-	_, err := testContext.client.Put(testContext.key, testContext.data)
+	_, err := testContext.client.Put(testContext.item)
 
 	if ErrAppendToJournalFailed != err {
 
@@ -133,7 +75,7 @@ func TestWhenLogAppendFailsThenReturnedChannelUnblocks(t *testing.T) {
 
 	testContext.journalSpy.FailNextAppend("Failing for test purposes")
 
-	doneCh, _ := testContext.client.Put(testContext.key, testContext.data)
+	doneCh, _ := testContext.client.Put(testContext.item)
 
 	result := <-doneCh
 
@@ -146,7 +88,7 @@ func TestWhenItemIsPutThenSubscriptionSetupOnJournalIndex(t *testing.T) {
 
 	testContext := setup()
 
-	testContext.client.Put(testContext.key, testContext.data)
+	testContext.client.Put(testContext.item)
 
 	if !testContext.journalSpy.RegisteredForNotifyOnIndex(0) {
 		t.Errorf("Subscriber for journal index 0 should have been registered but was not")
@@ -157,7 +99,7 @@ func TestWhenItemIsPutThenSubscriptionSetupOnJournalIndexAssociatedWithReturnedC
 
 	testContext := setup()
 
-	doneCh, _ := testContext.client.Put(testContext.key, testContext.data)
+	doneCh, _ := testContext.client.Put(testContext.item)
 
 	if !testContext.journalSpy.RegisteredNotifyChannelOnIndex(0, doneCh) {
 		t.Errorf("Channel %v should have been registered for notification with journal index 0", doneCh)
@@ -170,7 +112,7 @@ func TestWhenItemIsPutAndSubscriptionForCommitOnIndexFailsThenTheChannelIsUnbloc
 
 	testContext.journalSpy.FailNextNotifyOfCommitOnIndexOnce()
 
-	doneCh, _ := testContext.client.Put(testContext.key, testContext.data)
+	doneCh, _ := testContext.client.Put(testContext.item)
 
 	result := <-doneCh
 
@@ -185,7 +127,7 @@ func TestWhenItemIsPutAndSubscriptionForCommitOnIndexFailsThenTheCorrectErrorIsR
 
 	testContext.journalSpy.FailNextNotifyOfCommitOnIndexOnce()
 
-	_, err := testContext.client.Put(testContext.key, testContext.data)
+	_, err := testContext.client.Put(testContext.item)
 
 	if ErrRegisterForNotificationOnCommit != err {
 
@@ -195,69 +137,27 @@ func TestWhenItemIsPutAndSubscriptionForCommitOnIndexFailsThenTheCorrectErrorIsR
 	}
 }
 
-func TestWhenEmptyKeyIsPutThenAnErrorIsReturned(t *testing.T) {
+func TestWhenGettingDataForValidRequestThenTheDataIsReturned(t *testing.T) {
 
 	testContext := setup()
 
-	_, err := testContext.client.Put("", testContext.data)
+	testContext.stateMachineSpy.AddStateMachineData(testContext.item)
 
-	if ErrEmptyKey != err {
+	retrievedData, _ := testContext.client.Get(testContext.item)
 
-		t.Errorf("Expected error '%v', but got '%v'", ErrEmptyKey, err)
+	if !reflect.DeepEqual(testContext.item, retrievedData) {
+
+		t.Errorf("Item %s should have been retrieved", testContext.item)
 	}
 }
 
-func TestWhenEmptyKeyIsPutThenTheChannelIsUnblocked(t *testing.T) {
+func TestWhenGettingDataForValidRequestThenNoErrorIsReturned(t *testing.T) {
 
 	testContext := setup()
 
-	doneCh, _ := testContext.client.Put("", testContext.data)
+	testContext.stateMachineSpy.AddStateMachineData(testContext.item)
 
-	result := <-doneCh
-
-	if result {
-
-		t.Errorf("Key is invalid, channel should have read false")
-	}
-}
-
-func TestWhenGettingDataForKeyThatDoesNotExistThenAnErrorIsReturned(t *testing.T) {
-
-	testContext := setup()
-
-	_, getErr := testContext.client.Get("blah")
-
-	if ErrKeyDoesNotExist != getErr {
-		t.Errorf("Should have recieved error '%v' but got '%v'",
-			ErrKeyDoesNotExist,
-			getErr)
-	}
-}
-
-func TestWhenGettingDataForKeyThatExistsThenTheDataIsReturned(t *testing.T) {
-
-	testContext := setup()
-
-	testContext.stateMachineSpy.SetDataForKey(testContext.key, testContext.data)
-
-	retrievedData, _ := testContext.client.Get(testContext.key)
-
-	if !reflect.DeepEqual(testContext.data, retrievedData) {
-
-		t.Errorf("Data should have been retrieved for key '%s', expected '%s' but got '%s'",
-			testContext.key,
-			testContext.data,
-			retrievedData)
-	}
-}
-
-func TestWhenGettingDataForKeyThatExistsThenTheNoErrorIsReturned(t *testing.T) {
-
-	testContext := setup()
-
-	testContext.stateMachineSpy.SetDataForKey(testContext.key, testContext.data)
-
-	_, err := testContext.client.Get(testContext.key)
+	_, err := testContext.client.Get(testContext.item)
 
 	if err != nil {
 
@@ -271,13 +171,7 @@ type TestContext struct {
 	client          *Client
 	journalSpy      *journal.Spy
 	stateMachineSpy *state.Spy
-	key             string
-	data            []byte
-}
-
-func hashIt(key string) []byte {
-
-	return crypto.HashIt(key)
+	item            []byte
 }
 
 func setup() *TestContext {
@@ -291,8 +185,7 @@ func setup() *TestContext {
 		client:          client,
 		journalSpy:      journalSpy,
 		stateMachineSpy: stateMachineSpy,
-		key:             "iamakey",
-		data:            []byte("i am some data"),
+		item:            []byte("i am some item"),
 	}
 
 	return testContext

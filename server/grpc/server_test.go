@@ -5,14 +5,11 @@ import (
 	"errors"
 	"github.com/jrobison153/raft/api"
 	"github.com/jrobison153/raft/policy/client"
-	"reflect"
 	"strings"
 	"testing"
 )
 
-const expectedKey = "12345678"
-
-var expectedData = []byte("Data here! Just passing through!")
+var expectedData = "Item here! Just passing through!"
 
 const (
 	NoFailures = iota
@@ -20,31 +17,19 @@ const (
 	ReplicationFailure
 )
 
-func TestWhenItemIsPutThenTheKeyIsHandedToTheSupportingPolicyService(t *testing.T) {
+func TestWhenItemIsPutThenTheItemIsHandedToTheSupportingPolicyService(t *testing.T) {
 
 	testContext := setupForPut(NoFailures)
 
-	key := testContext.ClientPolicySpy.LastPutKey
+	item := testContext.ClientPolicySpy.LastPutItem()
 
-	if strings.Compare(expectedKey, key()) != 0 {
-		t.Errorf("Key should have been handed to underlying policy service, expected '%s' but saw '%s'",
-			expectedKey,
-			key())
+	itemAsStr := string(item)
 
-	}
-}
-
-func TestWhenItemIsPutThenTheDataIsHandedToTheSupportingPolicyService(t *testing.T) {
-
-	testContext := setupForPut(NoFailures)
-
-	key := testContext.ClientPolicySpy.LastDataKey()
-
-	if !reflect.DeepEqual(expectedData, key) {
-
-		t.Errorf("Data should have been handed to underlying policy service, expected '%s' but saw '%s'",
+	if strings.Compare(expectedData, itemAsStr) != 0 {
+		t.Errorf("Put item should have been handed to underlying policy service, expected '%s' but saw '%s'",
 			expectedData,
-			key)
+			itemAsStr)
+
 	}
 }
 
@@ -52,11 +37,11 @@ func TestWhenPutCompletesSuccessfullyThenStatusIsOk(t *testing.T) {
 
 	testContext := setupForPut(NoFailures)
 
-	actualStatus := testContext.PutResponse.Status
+	actualStatus := testContext.PutItemResponse.Status
 
 	if api.ClientStatusCodes_PUT_OK != actualStatus {
 
-		t.Errorf("PutResponse status should have been %s but instead we got %s",
+		t.Errorf("PutItemResponse status should have been %s but instead we got %s",
 			api.ClientStatusCodes_PUT_OK,
 			actualStatus)
 	}
@@ -66,7 +51,7 @@ func TestWhenPutCompletesSuccessfullyThenRetryStatusIsSetCorrectly(t *testing.T)
 
 	testContext := setupForPut(NoFailures)
 
-	isRetryable := testContext.PutResponse.IsRetryable
+	isRetryable := testContext.PutItemResponse.IsRetryable
 	if api.RetryCodes_NO != isRetryable {
 
 		t.Errorf("PutItem should have returned with retryable code '%v', instead we got '%v'",
@@ -92,7 +77,7 @@ func TestWhenPutFailsWithAnErrorThenTheStatusIsPutError(t *testing.T) {
 
 	testContext := setupForPut(GeneralFailure)
 
-	status := testContext.PutResponse.Status
+	status := testContext.PutItemResponse.Status
 
 	if api.ClientStatusCodes_PUT_ERROR != status {
 		t.Errorf("PutItem should have returned with Status '%v', instead we got '%v'",
@@ -105,7 +90,7 @@ func TestWhenPutFailsWithAnErrorAndItIsRetryableThenTheRetryableStatusIsSetToYes
 
 	testContext := setupForPut(GeneralFailure)
 
-	isRetryable := testContext.PutResponse.IsRetryable
+	isRetryable := testContext.PutItemResponse.IsRetryable
 
 	if api.RetryCodes_YES != isRetryable {
 		t.Errorf("PutItem should have returned with retryable code '%v', instead we got '%v'",
@@ -118,7 +103,7 @@ func TestWhenPutCompletesSuccessfullyThenReplicationCompleteStatusIsSetToSuccess
 
 	testContext := setupForPut(NoFailures)
 
-	replStatus := testContext.PutResponse.ReplicationStatus
+	replStatus := testContext.PutItemResponse.ReplicationStatus
 
 	if api.ReplicationCodes_QUORUM_REACHED != replStatus {
 		t.Errorf("PutItem should have returned replication status of '%v' but instead we got '%v'",
@@ -131,7 +116,7 @@ func TestWhenPutReplicationFailsThenReplicationCompleteStatusIsSetToFailureValue
 
 	testContext := setupForPut(ReplicationFailure)
 
-	replStatus := testContext.PutResponse.ReplicationStatus
+	replStatus := testContext.PutItemResponse.ReplicationStatus
 
 	if api.ReplicationCodes_FAILURE_TO_REACH_QUORUM != replStatus {
 		t.Errorf("PutItem should have returned replication status of '%v' but instead we got '%v'",
@@ -144,7 +129,7 @@ func TestWhenPutReplicationFailsThenTheStatusIsPutError(t *testing.T) {
 
 	testContext := setupForPut(ReplicationFailure)
 
-	status := testContext.PutResponse.Status
+	status := testContext.PutItemResponse.Status
 
 	if api.ClientStatusCodes_PUT_ERROR != status {
 		t.Errorf("PutItem should have returned put status of '%v' but instead we got '%v'",
@@ -157,10 +142,10 @@ func TestWhenPutReplicationFailsThenTheRetryStatusIsSetToYes(t *testing.T) {
 
 	testContext := setupForPut(ReplicationFailure)
 
-	isRetryable := testContext.PutResponse.IsRetryable
+	isRetryable := testContext.PutItemResponse.IsRetryable
 
 	if api.RetryCodes_YES != isRetryable {
-		t.Errorf("PutResponse restyrable status should have been '%v' but was '%v'",
+		t.Errorf("PutItemResponse restyrable status should have been '%v' but was '%v'",
 			api.RetryCodes_YES,
 			isRetryable)
 	}
@@ -177,31 +162,22 @@ func TestWhenPutReplicationFailsThenTheCorrectErrorIsReturned(t *testing.T) {
 	}
 }
 
-func TestWhenGettingItemThatDoesNotExistThenAnErrorIsReturned(t *testing.T) {
+func TestWhenGettingItemAndThereIsAnErrorThenTheCorrectErrorIsReturned(t *testing.T) {
 
-	testContext := setupForGet("non-existent key")
+	testContext := setupForGet(GeneralFailure)
 
-	if testContext.GetErr == nil {
-		t.Errorf("An error should have been returned, but it was not")
-	}
-}
-
-func TestWhenGettingItemThatDoesNotExistThenTheCorrectErrorIsReturned(t *testing.T) {
-
-	testContext := setupForGet("non-existent key")
-
-	if ErrGetNonExistentKey != testContext.GetErr {
+	if ErrGetGeneralFailure != testContext.GetErr {
 		t.Errorf("Should have seen error '%v', but instead got '%v'",
-			ErrGetNonExistentKey,
+			ErrGetGeneralFailure,
 			testContext.GetErr)
 	}
 }
 
-func TestWhenGettingItemThatDoesNotExistThenResponseStatusSetCorrectly(t *testing.T) {
+func TestWhenGettingItemAndThereIsAnErrorThenResponseStatusSetCorrectly(t *testing.T) {
 
-	testContext := setupForGet("non-existent key")
+	testContext := setupForGet(GeneralFailure)
 
-	status := testContext.GetResponse.Status
+	status := testContext.GetItemResponse.Status
 
 	if api.ClientStatusCodes_GET_ERROR != status {
 
@@ -211,11 +187,11 @@ func TestWhenGettingItemThatDoesNotExistThenResponseStatusSetCorrectly(t *testin
 	}
 }
 
-func TestWhenGettingItemThatDoesNotExistThenRetryStatusSetCorrectly(t *testing.T) {
+func TestWhenGettingItemAndThereIsAnErrorThenRetryStatusSetCorrectly(t *testing.T) {
 
-	testContext := setupForGet("non-existent key")
+	testContext := setupForGet(GeneralFailure)
 
-	isRetryable := testContext.GetResponse.IsRetryable
+	isRetryable := testContext.GetItemResponse.IsRetryable
 
 	if api.RetryCodes_YES != isRetryable {
 
@@ -225,98 +201,38 @@ func TestWhenGettingItemThatDoesNotExistThenRetryStatusSetCorrectly(t *testing.T
 	}
 }
 
-func TestWhenGettingItemThatDoesNotExistThenErrorMessageSetCorrectly(t *testing.T) {
+func TestWhenGettingItemAndThereIsAnErrorThenErrorMessageSetCorrectly(t *testing.T) {
 
-	testContext := setupForGet("non-existent key")
+	testContext := setupForGet(GeneralFailure)
 
-	errorMessage := testContext.GetResponse.ErrorMessage
+	errorMessage := testContext.GetItemResponse.ErrorMessage
 
-	if strings.Compare(ErrGetNonExistentKey.Error(), errorMessage) != 0 {
+	if strings.Compare(ErrGetGeneralFailure.Error(), errorMessage) != 0 {
 
 		t.Errorf("PutItem should have returned error message '%s' but instead we got '%s'",
-			ErrGetNonExistentKey.Error(),
+			ErrGetGeneralFailure.Error(),
 			errorMessage)
 	}
 }
 
-func TestWhenGettingItemWithEmptyKeyThenTheCorrectErrorIsReturned(t *testing.T) {
+func TestWhenGettingItemThatHasBeenPreviouslyPutThenTheItemIsReturnedInTheResponse(t *testing.T) {
 
-	testContext := setupForGet("")
+	testContext := setupForGet(NoFailures)
 
-	if ErrGetEmptyKey != testContext.GetErr {
-		t.Errorf("Should have seen error '%v', but instead got '%v'",
-			ErrGetEmptyKey,
-			testContext.GetErr)
-	}
-}
+	responseData := string(testContext.GetItemResponse.Item.Data)
 
-func TestWhenGettingItemWithEmptyKeyThenTheResponseStatusIsSetCorrectly(t *testing.T) {
+	if strings.Compare(expectedData, responseData) != 0 {
 
-	testContext := setupForGet("")
-
-	status := testContext.GetResponse.GetStatus()
-
-	if api.ClientStatusCodes_GET_ERROR != status {
-		t.Errorf("Should have got status '%v', but instead got '%v'",
-			api.ClientStatusCodes_GET_ERROR,
-			status)
-	}
-}
-
-func TestWhenGettingItemWithEmptyKeyThenTheCorrectErrorMessageIsReturned(t *testing.T) {
-
-	testContext := setupForGet("")
-
-	errorMessage := testContext.GetResponse.ErrorMessage
-
-	if strings.Compare(ErrGetEmptyKey.Error(), errorMessage) != 0 {
-
-		t.Errorf("Should seen error message '%s', but instead got '%s'",
-			ErrGetEmptyKey,
-			errorMessage)
-	}
-}
-
-func TestWhenGettingItemWithEmptyKeyThenTheCorrectRetryStatusIsReturned(t *testing.T) {
-
-	testContext := setupForGet("")
-
-	isRetryable := testContext.GetResponse.IsRetryable
-
-	if api.RetryCodes_NO != isRetryable {
-		t.Errorf("Retry status should have been '%v' but instead was '%v'",
-			api.RetryCodes_NO,
-			isRetryable)
-	}
-}
-
-func TestWhenGettingItemThatHasBeenPreviouslyPutThenTheKeyIsReturnedInTheResponse(t *testing.T) {
-
-	testContext := setupForGet(expectedKey)
-
-	if strings.Compare(expectedKey, testContext.GetResponse.Item.Key) != 0 {
-
-		t.Errorf("Key shoud have been returned in the response but it was not, saw response '%+v'",
-			testContext.GetResponse)
-	}
-}
-
-func TestWhenGettingItemThatHasBeenPreviouslyPutThenTheDataIsReturnedInTheResponse(t *testing.T) {
-
-	testContext := setupForGet(expectedKey)
-
-	if !reflect.DeepEqual(expectedData, testContext.GetResponse.Item.Data) {
-
-		t.Errorf("Data shoud have been returned in the response but it was not, saw response '%+v'",
-			testContext.GetResponse)
+		t.Errorf("Item should have been returned in the response but it was not, saw response '%+v'",
+			testContext.GetItemResponse)
 	}
 }
 
 func TestWhenGettingItemThatHasBeenPreviouslyPutThenTheResponseStatusIsSetCorrectly(t *testing.T) {
 
-	testContext := setupForGet(expectedKey)
+	testContext := setupForGet(NoFailures)
 
-	status := testContext.GetResponse.Status
+	status := testContext.GetItemResponse.Status
 
 	if api.ClientStatusCodes_GET_OK != status {
 		t.Errorf("Response should have had status %v but we got %v",
@@ -327,9 +243,9 @@ func TestWhenGettingItemThatHasBeenPreviouslyPutThenTheResponseStatusIsSetCorrec
 
 func TestWhenGettingItemThatHasBeenPreviouslyPutThenTheRetryStatusIsSetCorrectly(t *testing.T) {
 
-	testContext := setupForGet(expectedKey)
+	testContext := setupForGet(NoFailures)
 
-	isRetryable := testContext.GetResponse.IsRetryable
+	isRetryable := testContext.GetItemResponse.IsRetryable
 
 	if api.RetryCodes_YES != isRetryable {
 		t.Errorf("Response should have had retry status %v but we got %v",
@@ -346,12 +262,11 @@ func setup(spy *client.Spy) *RaftServer {
 }
 
 type TestContext struct {
-	PutResponse     *api.PutResponse
-	GetResponse     *api.GetResponse
+	PutItemResponse *api.PutItemResponse
+	GetItemResponse *api.GetItemResponse
 	ClientPolicySpy *client.Spy
 	PutErr          error
 	GetErr          error
-	GetKey          *api.Key
 }
 
 func setupForPut(scenario int) *TestContext {
@@ -369,14 +284,13 @@ func setupForPut(scenario int) *TestContext {
 	server := setup(clientPolicySpy)
 
 	item := &api.Item{
-		Key:  expectedKey,
-		Data: expectedData,
+		Data: []byte(expectedData),
 	}
 
 	response, putErr := server.PutItem(context.Background(), item)
 
 	testContext := &TestContext{
-		PutResponse:     response,
+		PutItemResponse: response,
 		ClientPolicySpy: clientPolicySpy,
 		PutErr:          putErr,
 	}
@@ -384,30 +298,28 @@ func setupForPut(scenario int) *TestContext {
 	return testContext
 }
 
-func setupForGet(aKey string) *TestContext {
+func setupForGet(scenario int) *TestContext {
 
 	spy := client.NewSpy()
 
 	server := setup(spy)
 
-	key := &api.Key{
-		Key: aKey,
+	if scenario == GeneralFailure {
+		spy.FailNextGet()
 	}
 
 	item := &api.Item{
-		Key:  expectedKey,
-		Data: expectedData,
+		Data: []byte(expectedData),
 	}
 
 	server.PutItem(context.Background(), item)
 
-	response, err := server.GetItem(context.Background(), key)
+	response, err := server.GetItem(context.Background(), item)
 
 	testContext := &TestContext{
 		ClientPolicySpy: spy,
-		GetKey:          key,
 		GetErr:          err,
-		GetResponse:     response,
+		GetItemResponse: response,
 	}
 
 	return testContext

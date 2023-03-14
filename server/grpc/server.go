@@ -33,7 +33,7 @@ func New(policyClient client.Persister) *RaftServer {
 
 var (
 	ErrPutRetryable      = errors.New("unable to save data, the operation is safe to retry")
-	ErrGetNonExistentKey = errors.New("attempt to retrieve data for a key that does not exist")
+	ErrGetGeneralFailure = errors.New("unable to get data")
 	ErrGetEmptyKey       = errors.New("invalid key, key must not be the empty string")
 )
 
@@ -84,14 +84,14 @@ func (clientApi *RaftServer) Health(context.Context, *api.Empty) (*api.HealthRes
 	return response, nil
 }
 
-// PutItem is a gRPC controller function used to store, "Put", an Items to the Raft cluster.
-func (clientApi *RaftServer) PutItem(ctx context.Context, item *api.Item) (*api.PutResponse, error) {
+// PutItem is a gRPC controller function used to store, "Put", an Item to the Raft cluster.
+func (clientApi *RaftServer) PutItem(ctx context.Context, item *api.Item) (*api.PutItemResponse, error) {
 
-	replicationCh, preReplicationErr := clientApi.policyClient.Put(item.Key, item.Data)
+	replicationCh, preReplicationErr := clientApi.policyClient.Put(item.Data)
 
 	var putErr error
 
-	var response *api.PutResponse
+	var response *api.PutItemResponse
 
 	if preReplicationErr == nil {
 
@@ -114,22 +114,17 @@ func (clientApi *RaftServer) PutItem(ctx context.Context, item *api.Item) (*api.
 }
 
 // GetItem is a gRPC controller function used to retrieve, "Get", an Item from the Raft cluster.
-func (clientApi *RaftServer) GetItem(ctx context.Context, key *api.Key) (*api.GetResponse, error) {
+func (clientApi *RaftServer) GetItem(ctx context.Context, item *api.Item) (*api.GetItemResponse, error) {
 
 	var responseErr error
-	var response *api.GetResponse
+	var response *api.GetItemResponse
 
-	if isKeyValid(key) {
+	data, err := clientApi.policyClient.Get(item.Data)
 
-		data, err := clientApi.policyClient.Get(key.Key)
-
-		if err != nil {
-			response, responseErr = createNonExistentKeyResponse()
-		} else {
-			response = createSuccessResponse(key, data)
-		}
+	if err != nil {
+		response, responseErr = createGeneralGetFailResponse()
 	} else {
-		response, responseErr = createInvalidKeyResponse()
+		response = createSuccessResponse(data)
 	}
 
 	return response, responseErr
@@ -140,9 +135,9 @@ func (clientApi *RaftServer) PolicyClient() client.Persister {
 	return clientApi.policyClient
 }
 
-func createPreReplFailureResponse() *api.PutResponse {
+func createPreReplFailureResponse() *api.PutItemResponse {
 
-	response := &api.PutResponse{}
+	response := &api.PutItemResponse{}
 
 	response.Status = api.ClientStatusCodes_PUT_ERROR
 	response.IsRetryable = api.RetryCodes_YES
@@ -150,9 +145,9 @@ func createPreReplFailureResponse() *api.PutResponse {
 	return response
 }
 
-func createReplFailResponse() *api.PutResponse {
+func createReplFailResponse() *api.PutItemResponse {
 
-	response := &api.PutResponse{}
+	response := &api.PutItemResponse{}
 
 	response.ReplicationStatus = api.ReplicationCodes_FAILURE_TO_REACH_QUORUM
 	response.IsRetryable = api.RetryCodes_YES
@@ -161,9 +156,9 @@ func createReplFailResponse() *api.PutResponse {
 	return response
 }
 
-func createReplSuccessResponse() *api.PutResponse {
+func createReplSuccessResponse() *api.PutItemResponse {
 
-	response := &api.PutResponse{}
+	response := &api.PutItemResponse{}
 
 	response.ReplicationStatus = api.ReplicationCodes_QUORUM_REACHED
 	response.Status = api.ClientStatusCodes_PUT_OK
@@ -172,16 +167,10 @@ func createReplSuccessResponse() *api.PutResponse {
 	return response
 }
 
-func isKeyValid(key *api.Key) bool {
+func createSuccessResponse(data []byte) *api.GetItemResponse {
 
-	return len(key.Key) != 0
-}
-
-func createSuccessResponse(key *api.Key, data []byte) *api.GetResponse {
-
-	response := &api.GetResponse{
+	response := &api.GetItemResponse{
 		Item: &api.Item{
-			Key:  key.Key,
 			Data: data,
 		},
 		IsRetryable: api.RetryCodes_YES,
@@ -191,27 +180,14 @@ func createSuccessResponse(key *api.Key, data []byte) *api.GetResponse {
 	return response
 }
 
-func createNonExistentKeyResponse() (*api.GetResponse, error) {
+func createGeneralGetFailResponse() (*api.GetItemResponse, error) {
 
-	response := &api.GetResponse{
+	response := &api.GetItemResponse{
 
 		Status:       api.ClientStatusCodes_GET_ERROR,
 		IsRetryable:  api.RetryCodes_YES,
-		ErrorMessage: ErrGetNonExistentKey.Error(),
+		ErrorMessage: ErrGetGeneralFailure.Error(),
 	}
 
-	return response, ErrGetNonExistentKey
-}
-
-func createInvalidKeyResponse() (*api.GetResponse, error) {
-
-	response := &api.GetResponse{
-
-		Status:       api.ClientStatusCodes_GET_ERROR,
-		ErrorMessage: ErrGetEmptyKey.Error(),
-
-		IsRetryable: api.RetryCodes_NO,
-	}
-
-	return response, ErrGetEmptyKey
+	return response, ErrGetGeneralFailure
 }

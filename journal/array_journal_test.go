@@ -3,7 +3,6 @@ package journal
 import (
 	"bytes"
 	"errors"
-	"strings"
 	"testing"
 )
 
@@ -18,7 +17,7 @@ func TestWhenConstructedThenTheAppendQueueIsInitialized(t *testing.T) {
 	}
 }
 
-func TestWhenDataAppendedToTheLogThenTheHeadEntryKeyIsSet(t *testing.T) {
+func TestWhenDataAppendedToTheLogThenTheHeadEntryIsSet(t *testing.T) {
 
 	testContext := setup()
 
@@ -26,40 +25,10 @@ func TestWhenDataAppendedToTheLogThenTheHeadEntryKeyIsSet(t *testing.T) {
 
 	headEntry, _ := testContext.journal.GetHead()
 
-	if !bytes.Equal(testContext.key, headEntry.Key) {
-		t.Errorf("The last appended item of the log should have been Key '%s' but got '%s'",
-			string(testContext.key),
-			string(headEntry.Key))
-	}
-}
-
-func TestWhenDataAppendedToTheLogThenTheHeadEntryDataIsSet(t *testing.T) {
-
-	testContext := setup()
-
-	testContext.appendEntries(1)
-
-	headEntry, _ := testContext.journal.GetHead()
-
-	if !bytes.Equal(testContext.data, headEntry.Data) {
-		t.Errorf("The last appended item of the log should have been Data '%s' but got '%s'",
-			string(testContext.data),
-			string(headEntry.Data))
-	}
-}
-
-func TestWhenDataAppendedToTheLogThenTheHeadEntryRawKeyIsSet(t *testing.T) {
-
-	testContext := setup()
-
-	testContext.appendEntries(1)
-
-	headEntry, _ := testContext.journal.GetHead()
-
-	if strings.Compare(testContext.rawKey, headEntry.RawKey) != 0 {
-		t.Errorf("The last appended item of the log should have had raw key '%s' but got '%s'",
-			testContext.rawKey,
-			headEntry.RawKey)
+	if !bytes.Equal(testContext.item, headEntry.Item) {
+		t.Errorf("The last appended item of the log should have been '%s' but got '%s'",
+			string(testContext.item),
+			string(headEntry.Item))
 	}
 }
 
@@ -487,27 +456,21 @@ func TestWhenNonEmptyJournalAndThereAreEntriesToCommitThenGetAllUncommittedEntri
 }
 
 type TestContext struct {
-	key      []byte
-	data     []byte
+	item     []byte
 	journal  *ArrayJournal
 	mutexSpy *MutexSpy
-	rawKey   string
 }
 
 func setup() *TestContext {
 
-	rawKey := "12345"
-	key := []byte(rawKey)
-	data := []byte("I am some sexy Data!")
+	item := []byte("I am some sexy Item!")
 
 	mutexSpy := NewMutexSpy()
 
 	logger := NewArrayJournal()
 
 	testContext := &TestContext{
-		key:      key,
-		rawKey:   rawKey,
-		data:     data,
+		item:     item,
 		journal:  logger,
 		mutexSpy: mutexSpy,
 	}
@@ -555,7 +518,7 @@ func (testContext *TestContext) appendEntries(count int) uint64 {
 	var index uint64
 
 	for i := 0; i < count; i++ {
-		appendResultCh := testContext.journal.Append(testContext.rawKey, testContext.key, testContext.data)
+		appendResultCh := testContext.journal.Append(testContext.item)
 
 		result := <-appendResultCh
 

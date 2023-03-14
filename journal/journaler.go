@@ -1,10 +1,8 @@
-// Package journal contains interfaces and implementations of append only Data storage logs/journals
+// Package journal contains interfaces and implementations of append only Item storage logs/journals
 package journal
 
 type Entry struct {
-	Data   []byte
-	Key    []byte
-	RawKey string
+	Item []byte
 }
 
 type AppendResult struct {
@@ -31,7 +29,7 @@ type AllUncommittedEntriesResult struct {
 	HeadIndex int
 }
 
-// Iterator provides a read only view into the data backing a Journaler
+// Iterator provides a read only view into the item backing a Journaler
 type Iterator interface {
 	Size() int
 	Next() (Entry, error)
@@ -39,7 +37,7 @@ type Iterator interface {
 }
 
 type Journaler interface {
-	Append(rawKey string, key []byte, data []byte) chan AppendResult
+	Append(item []byte) chan AppendResult
 	Commit(index uint64) chan CommitResult
 	GetAllCommittedEntries() Iterator
 	GetAllEntriesBetween(beginIndex uint64, endIndex uint64) (Iterator, error)
