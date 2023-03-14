@@ -2,14 +2,13 @@ package client
 
 import (
 	"errors"
-	"strings"
 )
 
 type Spy struct {
-	lastPutKey           string
-	lastPutData          []byte
+	lastPutItem          []byte
 	isFailingPut         bool
 	isFailingReplication bool
+	isFailingGet         bool
 }
 
 func NewSpy() *Spy {
@@ -30,7 +29,7 @@ func (spy *Spy) TypeOfStateMachine() string {
 	panic("implement me")
 }
 
-func (spy *Spy) Put(key string, data []byte) (chan bool, error) {
+func (spy *Spy) Put(item []byte) (chan bool, error) {
 
 	var err error
 	var replResult = true
@@ -42,8 +41,7 @@ func (spy *Spy) Put(key string, data []byte) (chan bool, error) {
 		replResult = false
 	} else {
 
-		spy.lastPutKey = key
-		spy.lastPutData = data
+		spy.lastPutItem = item
 	}
 
 	doneCh := make(chan bool)
@@ -53,28 +51,23 @@ func (spy *Spy) Put(key string, data []byte) (chan bool, error) {
 	return doneCh, err
 }
 
-func (spy *Spy) Get(key string) ([]byte, error) {
+func (spy *Spy) Get(item []byte) ([]byte, error) {
 
 	var err error
 	var data []byte
 
-	if strings.Compare(key, spy.lastPutKey) != 0 {
-		err = errors.New("clientPolicySpy: attempt to get item that was not previously Put")
+	if spy.isFailingGet {
+		err = errors.New("failing Get for test reasons")
 	} else {
-		data = spy.lastPutData
+		data = spy.lastPutItem
 	}
 
 	return data, err
 }
 
-func (spy *Spy) LastPutKey() string {
+func (spy *Spy) LastPutItem() []byte {
 
-	return spy.lastPutKey
-}
-
-func (spy *Spy) LastDataKey() []byte {
-
-	return spy.lastPutData
+	return spy.lastPutItem
 }
 
 func (spy *Spy) FailNextPut() {
@@ -83,4 +76,8 @@ func (spy *Spy) FailNextPut() {
 
 func (spy *Spy) FailReplication() {
 	spy.isFailingReplication = true
+}
+
+func (spy *Spy) FailNextGet() {
+	spy.isFailingGet = true
 }

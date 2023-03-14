@@ -8,7 +8,7 @@ var (
 	ErrCommitOnEmptyLog       = errors.New("attempt to commit on an empty log")
 	ErrEmptyLog               = errors.New("attempt to get Head item from an empty log")
 	ErrIndexBeyondHead        = errors.New("attempt to commit an index that is beyond the head of the log")
-	ErrIndexOutOfBounds       = errors.New("attempt to access journal data with an out of bounds index")
+	ErrIndexOutOfBounds       = errors.New("attempt to access journal item with an out of bounds index")
 	ErrInvertedIndexes        = errors.New("start index is greater than end index, indexes are inverted")
 	ErrSubscriptionOnEmptyLog = errors.New("attempt to setup subscription to index on an empty log")
 )
@@ -55,15 +55,13 @@ func NewArrayJournal() *ArrayJournal {
 	return journal
 }
 
-// Append adds an Entry to the log as the new Head item with Key and Data set as the respective Entry
-// Data elements.
+// Append adds an Entry to the log as the new Head item with Key and Item set as the respective Entry
+// Item elements.
 // Append is safe for concurrent execution
-func (journal *ArrayJournal) Append(rawKey string, key []byte, data []byte) chan AppendResult {
+func (journal *ArrayJournal) Append(item []byte) chan AppendResult {
 
 	entry := Entry{
-		Key:    key,
-		RawKey: rawKey,
-		Data:   data,
+		Item: item,
 	}
 
 	doneCh := make(chan AppendResult)

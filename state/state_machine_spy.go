@@ -7,28 +7,40 @@ import (
 )
 
 type Spy struct {
-	renderedState map[string][]byte
+	renderedState [][]byte
 	journal       journal.Journaler
 	startCalled   bool
 }
 
 func NewStateMachineSpy(journal journal.Journaler) *Spy {
 	return &Spy{
-		renderedState: make(map[string][]byte),
+		renderedState: make([][]byte, 0, 16),
 		journal:       journal,
 	}
 }
 
-func (spy *Spy) GetValueForKey(key string) ([]byte, error) {
+func (spy *Spy) ResolveRequestToData(request []byte) ([]byte, error) {
 
-	data := spy.renderedState[key]
+	var data []byte
+	data = spy.retrieveItemFromStore(request, data)
 
 	var err error
 	if data == nil {
-		err = errors.New("failing for test purposes, key does not exist in state")
+		err = errors.New("failing for test purposes, requested data does not exist")
 	}
 
-	return spy.renderedState[key], err
+	return data, err
+}
+
+func (spy *Spy) retrieveItemFromStore(request []byte, data []byte) []byte {
+	for _, storedData := range spy.renderedState {
+
+		if reflect.DeepEqual(request, storedData) {
+			data = storedData
+			break
+		}
+	}
+	return data
 }
 
 func (spy *Spy) Start() error {
@@ -41,11 +53,11 @@ func (spy *Spy) TypeOfLogger() string {
 	return reflect.TypeOf(spy.journal).String()
 }
 
-func (spy *Spy) SetDataForKey(key string, data []byte) {
-
-	spy.renderedState[key] = data
-}
-
 func (spy *Spy) StartCalled() bool {
 	return spy.startCalled
+}
+
+func (spy *Spy) AddStateMachineData(item []byte) {
+
+	spy.renderedState = append(spy.renderedState, item)
 }

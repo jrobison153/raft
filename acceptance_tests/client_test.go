@@ -2,6 +2,7 @@ package acceptance_tests
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/jrobison153/raft/api"
 	"google.golang.org/grpc"
@@ -21,6 +22,11 @@ type ProcessContext struct {
 	CommandErrMessages []byte
 	StdOut             io.ReadCloser
 	CommandOutMessages []byte
+}
+
+type KeyValItem struct {
+	Key  string
+	Data []byte
 }
 
 func init() {
@@ -133,50 +139,67 @@ func TestWhenServerRunningThenHealthStatusIsOk(t *testing.T) {
 	}
 }
 
+type Key struct {
+	Key string
+}
+
 func TestWhenAnItemIsPutItCanBeRetrieved(t *testing.T) {
 
 	raftProcessContext := Setup()
 	defer raftProcessContext.Teardown()
 
-	itemToPut := api.Item{
-		Key:  "af159-ef7ff",
-		Data: []byte("42"),
-	}
-
 	conn, client := createClient()
 
 	defer conn.Close()
 
-	_, err := client.PutItem(context.Background(), &itemToPut)
+	kvItemToSave := KeyValItem{
+		Key:  "af159-ef7ff",
+		Data: []byte("42"),
+	}
+
+	marshalledItemToSave, marshErr := json.Marshal(kvItemToSave)
+
+	if marshErr != nil {
+		log.Fatalf(marshErr.Error())
+	}
+
+	itemToSave := api.Item{
+		Data: marshalledItemToSave,
+	}
+
+	_, err := client.PutItem(context.Background(), &itemToSave)
 
 	if err != nil {
 		t.Errorf("PutItem request failed with error %s", err.Error())
 	} else {
 
-		key := &api.Key{
-			Key: itemToPut.Key,
+		key := Key{
+			Key: kvItemToSave.Key,
 		}
 
-		getResponse, err := client.GetItem(context.Background(), key)
+		marshalledKey, keyMarshErr := json.Marshal(key)
+
+		if keyMarshErr != nil {
+			log.Fatalf(keyMarshErr.Error())
+		}
+
+		itemToGet := api.Item{
+			Data: marshalledKey,
+		}
+
+		getResponse, err := client.GetItem(context.Background(), &itemToGet)
 
 		if err != nil {
 			t.Errorf("GetItem request failed with error %s", err.Error())
 		}
 
-		retrievedItem := getResponse.Item
+		retrievedData := getResponse.Item.Data
 
-		if retrievedItem.Key != itemToPut.Key {
-			t.Errorf(
-				"Retrieved item keys do not match. Got '%s' expected '%s'",
-				retrievedItem.Key,
-				itemToPut.Key)
-		}
-
-		if string(retrievedItem.Data) != string(itemToPut.Data) {
+		if string(retrievedData) != string(kvItemToSave.Data) {
 			t.Errorf(
 				"Retrieved item data values do not match. Got '%s' expected '%s'",
-				retrievedItem.Data,
-				itemToPut.Data)
+				retrievedData,
+				kvItemToSave.Data)
 		}
 	}
 }

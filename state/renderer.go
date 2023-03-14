@@ -1,7 +1,7 @@
 package state
 
 type Renderer interface {
-	GetValueForKey(key string) ([]byte, error)
+	ResolveRequestToData(request []byte) ([]byte, error)
 	Start() error
 	TypeOfLogger() string
 }
